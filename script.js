@@ -1,5 +1,6 @@
 // Simulação de servidor WebRTC (para demonstração local)
 // Em produção, você precisará de um servidor signaling real
+// Configuração do WebRTC com signaling real
 class WebRTCApp {
     constructor() {
         this.localStream = null;
@@ -7,10 +8,15 @@ class WebRTCApp {
         this.peerConnection = null;
         this.roomId = null;
         this.isCallStarted = false;
+        this.socket = null;
+        this.remoteUserId = null;
         
         this.initializeElements();
         this.setupEventListeners();
         this.showRoomModal();
+        
+        // Conectar ao servidor de signaling imediatamente
+        this.connectToSignalingServer();
     }
 
     initializeElements() {
@@ -23,7 +29,7 @@ class WebRTCApp {
         this.shareScreenBtn = document.getElementById('shareScreen');
         this.toggleAudioBtn = document.getElementById('toggleAudio');
         this.toggleVideoBtn = document.getElementById('toggleVideo');
-        this.endCallBtn = document.getElementById('endCall'); // Novo botão
+        this.endCallBtn = document.getElementById('endCall');
         
         // Elementos de chat
         this.messageInput = document.getElementById('messageInput');
@@ -47,7 +53,7 @@ class WebRTCApp {
         this.shareScreenBtn.addEventListener('click', () => this.shareScreen());
         this.toggleAudioBtn.addEventListener('click', () => this.toggleAudio());
         this.toggleVideoBtn.addEventListener('click', () => this.toggleVideo());
-        this.endCallBtn.addEventListener('click', () => this.endCall()); // Novo listener
+        this.endCallBtn.addEventListener('click', () => this.endCall());
         
         // Chat
         this.sendMessageBtn.addEventListener('click', () => this.sendMessage());
@@ -58,6 +64,21 @@ class WebRTCApp {
         // Sala
         this.joinRoomBtn.addEventListener('click', () => this.joinRoom());
         this.createRoomBtn.addEventListener('click', () => this.createRoom());
+    }
+
+    connectToSignalingServer() {
+        try {
+            // Conectar ao servidor de signaling
+            this.socket = io();
+            
+            // Configurar listeners do socket
+            this.setupSocketListeners();
+            
+            console.log('Conectado ao servidor de signaling');
+        } catch (error) {
+            console.error('Erro ao conectar com o servidor:', error);
+            this.addMessage('system', 'Erro ao conectar com o servidor. Verifique se o servidor está rodando.');
+        }
     }
 
     showRoomModal() {
@@ -86,9 +107,20 @@ class WebRTCApp {
         }
         
         this.roomId = roomId;
+        
+        // Verificar se o socket está conectado
+        if (!this.socket || !this.socket.connected) {
+            alert('Não conectado ao servidor. Tentando reconectar...');
+            this.connectToSignalingServer();
+            return;
+        }
+        
+        // Entrar na sala
+        this.socket.emit('join-room', this.roomId);
+        
         this.hideRoomModal();
         this.roomStatus.textContent = `Sala: ${this.roomId}`;
-        this.connectionStatus.textContent = 'Conectado';
+        this.connectionStatus.textContent = 'Conectado à sala';
         this.connectionStatus.style.color = 'green';
         
         // Habilitar controles
@@ -96,7 +128,112 @@ class WebRTCApp {
         this.messageInput.disabled = false;
         this.sendMessageBtn.disabled = false;
         
-        this.addMessage('system', 'Você entrou na sala de conferência');
+        this.addMessage('system', 'Você entrou na sala de conferência. Aguardando participantes...');
+    }
+
+    setupSocketListeners() {
+        // Evento de conexão estabelecida
+        this.socket.on('connect', () => {
+            console.log('Conectado ao servidor com ID:', this.socket.id);
+            this.addMessage('system', 'Conectado ao servidor');
+        });
+        
+        // Evento de desconexão
+        this.socket.on('disconnect', () => {
+            console.log('Desconectado do servidor');
+            this.addMessage('system', 'Desconectado do servidor');
+            this.connectionStatus.textContent = 'Desconectado';
+            this.connectionStatus.style.color = 'red';
+        });
+        
+        // Evento de erro de conexão
+        this.socket.on('connect_error', (error) => {
+            console.error('Erro de conexão:', error);
+            this.addMessage('system', 'Erro de conexão com o servidor');
+        });
+        
+        // Usuário conectado à sala
+        this.socket.on('user-connected', (userId) => {
+            this.addMessage('system', `Usuário ${userId} conectado. Iniciando chamada...`);
+            this.remoteUserId = userId;
+            
+            // Se já temos nossa mídia local, iniciar a oferta
+            if (this.localStream) {
+                this.createPeerConnection();
+                this.sendOffer();
+            } else {
+                this.startCall();
+            }
+        });
+        
+        // Usuário desconectado da sala
+        this.socket.on('user-disconnected', (userId) => {
+            if (userId === this.remoteUserId) {
+                this.addMessage('system', 'O participante desconectou');
+                this.connectionStatus.textContent = 'Participante desconectado';
+                this.connectionStatus.style.color = 'orange';
+                
+                // Limpar stream remoto
+                this.remoteVideo.srcObject = null;
+                this.remoteUserId = null;
+                
+                // Redefinir UI
+                this.shareScreenBtn.disabled = true;
+                this.toggleAudioBtn.disabled = true;
+                this.toggleVideoBtn.disabled = true;
+            }
+        });
+        
+        // Recebimento de oferta WebRTC
+        this.socket.on('offer', async (data) => {
+            this.addMessage('system', 'Recebendo solicitação de chamada...');
+            this.remoteUserId = data.sender;
+            
+            if (!this.localStream) {
+                await this.startCall();
+            }
+            
+            if (!this.peerConnection) {
+                this.createPeerConnection();
+            }
+            
+            try {
+                // Processar a oferta recebida
+                await this.peerConnection.setRemoteDescription(data.offer);
+                const answer = await this.peerConnection.createAnswer();
+                await this.peerConnection.setLocalDescription(answer);
+                
+                // Enviar resposta
+                this.socket.emit('answer', {
+                    target: this.remoteUserId,
+                    answer: answer
+                });
+            } catch (error) {
+                console.error('Erro ao processar oferta:', error);
+                this.addMessage('system', 'Erro ao processar solicitação de chamada');
+            }
+        });
+        
+        // Recebimento de resposta WebRTC
+        this.socket.on('answer', async (data) => {
+            this.addMessage('system', 'Chamada aceita pelo participante');
+            try {
+                await this.peerConnection.setRemoteDescription(data.answer);
+            } catch (error) {
+                console.error('Erro ao processar resposta:', error);
+            }
+        });
+        
+        // Recebimento de candidato ICE
+        this.socket.on('ice-candidate', async (data) => {
+            try {
+                if (this.peerConnection) {
+                    await this.peerConnection.addIceCandidate(data.candidate);
+                }
+            } catch (e) {
+                console.error('Erro ao adicionar ICE candidate:', e);
+            }
+        });
     }
 
     async startCall() {
@@ -110,15 +247,18 @@ class WebRTCApp {
             // Exibir vídeo local
             this.localVideo.srcObject = this.localStream;
             
-            // Simular conexão com outro participante (apenas para demonstração)
-            this.simulateRemoteConnection();
+            // Se já temos um usuário remoto, iniciar a oferta
+            if (this.remoteUserId && !this.peerConnection) {
+                this.createPeerConnection();
+                this.sendOffer();
+            }
             
             // Atualizar UI
             this.startCallBtn.disabled = true;
             this.shareScreenBtn.disabled = false;
             this.toggleAudioBtn.disabled = false;
             this.toggleVideoBtn.disabled = false;
-            this.endCallBtn.disabled = false; // Habilitar botão de finalizar chamada
+            this.endCallBtn.disabled = false;
             
             this.isCallStarted = true;
             this.addMessage('system', 'Chamada iniciada com sucesso');
@@ -129,15 +269,76 @@ class WebRTCApp {
         }
     }
 
-    simulateRemoteConnection() {
-        // Simula a recepção de uma transmissão remota (apenas para demonstração)
-        setTimeout(() => {
-            this.connectionStatus.textContent = 'Conectado com 1 participante';
-            this.addMessage('system', 'Outro participante entrou na chamada');
+    createPeerConnection() {
+        // Configuração dos servidores STUN
+        const configuration = {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' }
+            ]
+        };
+        
+        this.peerConnection = new RTCPeerConnection(configuration);
+        
+        // Adicionar stream local à conexão
+        this.localStream.getTracks().forEach(track => {
+            this.peerConnection.addTrack(track, this.localStream);
+        });
+        
+        // Manipular stream remoto
+        this.peerConnection.ontrack = (event) => {
+            this.remoteVideo.srcObject = event.streams[0];
+            this.remoteStream = event.streams[0];
+            this.connectionStatus.textContent = 'Conectado com participante';
+            this.connectionStatus.style.color = 'green';
+            this.addMessage('system', 'Conexão estabelecida com participante');
+        };
+        
+        // Manipular candidatos ICE
+        this.peerConnection.onicecandidate = (event) => {
+            if (event.candidate && this.remoteUserId) {
+                this.socket.emit('ice-candidate', {
+                    target: this.remoteUserId,
+                    candidate: event.candidate
+                });
+            }
+        };
+        
+        // Manipular mudanças de estado da conexão
+        this.peerConnection.onconnectionstatechange = () => {
+            switch(this.peerConnection.connectionState) {
+                case 'connected':
+                    this.connectionStatus.textContent = 'Conectado com participante';
+                    this.connectionStatus.style.color = 'green';
+                    break;
+                case 'disconnected':
+                case 'failed':
+                    this.connectionStatus.textContent = 'Problema na conexão';
+                    this.connectionStatus.style.color = 'red';
+                    break;
+                case 'closed':
+                    this.connectionStatus.textContent = 'Conexão fechada';
+                    this.connectionStatus.style.color = 'gray';
+                    break;
+            }
+        };
+    }
+
+    async sendOffer() {
+        try {
+            const offer = await this.peerConnection.createOffer();
+            await this.peerConnection.setLocalDescription(offer);
             
-            // Simular recebimento de vídeo (usando placeholder)
-            this.remoteVideo.srcObject = this.localStream;
-        }, 2000);
+            this.socket.emit('offer', {
+                target: this.remoteUserId,
+                offer: offer
+            });
+            
+            this.addMessage('system', 'Solicitação de chamada enviada');
+        } catch (error) {
+            console.error('Erro ao criar oferta:', error);
+            this.addMessage('system', 'Erro ao iniciar chamada');
+        }
     }
 
     async shareScreen() {
@@ -147,28 +348,23 @@ class WebRTCApp {
                 video: true
             });
             
-            // Substituir o vídeo da câmera pelo compartilhamento de tela
-            const videoTrack = screenStream.getVideoTracks()[0];
-            const sender = this.peerConnection ? this.peerConnection.getSenders()
-                .find(s => s.track && s.track.kind === 'video') : null;
+            // Encontrar o track de vídeo atual
+            const videoSender = this.peerConnection.getSenders()
+                .find(sender => sender.track && sender.track.kind === 'video');
             
-            if (sender) {
-                sender.replaceTrack(videoTrack);
-            } else {
-                this.localVideo.srcObject = screenStream;
+            if (videoSender) {
+                // Substituir o track da câmera pelo track da tela
+                await videoSender.replaceTrack(screenStream.getVideoTracks()[0]);
             }
             
             this.addMessage('system', 'Compartilhamento de tela iniciado');
             
             // Restaurar a câmera quando o compartilhamento for interrompido
-            videoTrack.onended = async () => {
-                if (this.isCallStarted) {
-                    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-                    if (sender) {
-                        const newVideoTrack = stream.getVideoTracks()[0];
-                        sender.replaceTrack(newVideoTrack);
-                    } else {
-                        this.localVideo.srcObject = stream;
+            screenStream.getVideoTracks()[0].onended = async () => {
+                if (this.isCallStarted && this.localStream) {
+                    const cameraTrack = this.localStream.getVideoTracks()[0];
+                    if (videoSender && cameraTrack) {
+                        await videoSender.replaceTrack(cameraTrack);
                     }
                     this.addMessage('system', 'Compartilhamento de tela finalizado');
                 }
@@ -202,11 +398,16 @@ class WebRTCApp {
         }
     }
 
-    // Função para finalizar a chamada
     endCall() {
         // Parar todas as tracks de mídia
         if (this.localStream) {
             this.localStream.getTracks().forEach(track => track.stop());
+        }
+        
+        // Fechar conexão peer
+        if (this.peerConnection) {
+            this.peerConnection.close();
+            this.peerConnection = null;
         }
         
         // Limpar os elementos de vídeo
@@ -229,14 +430,9 @@ class WebRTCApp {
         this.connectionStatus.style.color = 'red';
         
         this.isCallStarted = false;
+        this.remoteUserId = null;
         
         this.addMessage('system', 'Chamada finalizada');
-        
-        // Simular desconexão do participante remoto
-        setTimeout(() => {
-            this.connectionStatus.textContent = 'Desconectado';
-            this.connectionStatus.style.color = 'inherit';
-        }, 3000);
     }
 
     sendMessage() {
@@ -245,7 +441,8 @@ class WebRTCApp {
             this.addMessage('self', message);
             this.messageInput.value = '';
             
-            // Simular resposta (apenas para demonstração)
+            // Em um app real, você enviaria a mensagem via socket para o outro usuário
+            // Simulando recebimento de resposta após 1 segundo
             setTimeout(() => {
                 this.addMessage('remote', 'Mensagem recebida com sucesso!');
             }, 1000);
