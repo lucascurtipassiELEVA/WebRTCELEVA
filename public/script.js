@@ -66,9 +66,11 @@ class WebRTCApp {
 
     connectToSignalingServer() {
         try {
-            // Verificar se io está definido
+            // Verificar se io está definido (com fallback para CDN)
             if (typeof io === 'undefined') {
-                throw new Error('Biblioteca Socket.io não carregada');
+                // Tentar carregar da CDN se não estiver disponível
+                this.loadSocketIOFromCDN();
+                return;
             }
             
             // Conectar ao servidor de signaling
@@ -87,6 +89,25 @@ class WebRTCApp {
             this.showRoomModal();
             alert('Erro de conexão. Verifique se o servidor está rodando e tente novamente.');
         }
+    }
+
+    // Função para carregar Socket.io da CDN se necessário
+    loadSocketIOFromCDN() {
+        const script = document.createElement('script');
+        script.src = 'https://cdn.socket.io/4.7.2/socket.io.min.js';
+        script.onload = () => {
+            console.log('Socket.io carregado da CDN');
+            // Tentar conectar novamente após carregar a biblioteca
+            setTimeout(() => {
+                this.connectToSignalingServer();
+            }, 1000);
+        };
+        script.onerror = () => {
+            console.error('Falha ao carregar Socket.io da CDN');
+            this.addMessage('system', 'Falha ao carregar biblioteca necessária.');
+            alert('Erro crítico: Não foi possível carregar recursos necessários.');
+        };
+        document.head.appendChild(script);
     }
 
     showRoomModal() {
@@ -367,7 +388,7 @@ class WebRTCApp {
             
             this.addMessage('system', 'Compartilhamento de tela iniciado');
             
-            // Restaurar a câmera quando o compartilhamento for interrompido
+            // Restaurar a câmera quando o compartilhamento para ser interrompido
             screenStream.getVideoTracks()[0].onended = async () => {
                 if (this.isCallStarted && this.localStream) {
                     const cameraTrack = this.localStream.getVideoTracks()[0];

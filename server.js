@@ -5,7 +5,14 @@ const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
-const io = socketIo(server);
+
+// Configurar Socket.io com CORS
+const io = socketIo(server, {
+  cors: {
+    origin: "*", // Permite todas as origens (em produção, especifique seu domínio)
+    methods: ["GET", "POST"]
+  }
+});
 
 // Servir arquivos estáticos
 app.use(express.static(path.join(__dirname, 'public')));
@@ -13,11 +20,6 @@ app.use(express.static(path.join(__dirname, 'public')));
 // Rota principal
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-// Fornecer o arquivo Socket.io client
-app.get('/socket.io/socket.io.js', (req, res) => {
-  res.sendFile(path.join(__dirname, 'node_modules', 'socket.io', 'client-dist', 'socket.io.js'));
 });
 
 // Armazenamento de salas
