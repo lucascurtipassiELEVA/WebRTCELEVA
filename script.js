@@ -23,6 +23,7 @@ class WebRTCApp {
         this.shareScreenBtn = document.getElementById('shareScreen');
         this.toggleAudioBtn = document.getElementById('toggleAudio');
         this.toggleVideoBtn = document.getElementById('toggleVideo');
+        this.endCallBtn = document.getElementById('endCall'); // Novo botão
         
         // Elementos de chat
         this.messageInput = document.getElementById('messageInput');
@@ -46,6 +47,7 @@ class WebRTCApp {
         this.shareScreenBtn.addEventListener('click', () => this.shareScreen());
         this.toggleAudioBtn.addEventListener('click', () => this.toggleAudio());
         this.toggleVideoBtn.addEventListener('click', () => this.toggleVideo());
+        this.endCallBtn.addEventListener('click', () => this.endCall()); // Novo listener
         
         // Chat
         this.sendMessageBtn.addEventListener('click', () => this.sendMessage());
@@ -116,6 +118,7 @@ class WebRTCApp {
             this.shareScreenBtn.disabled = false;
             this.toggleAudioBtn.disabled = false;
             this.toggleVideoBtn.disabled = false;
+            this.endCallBtn.disabled = false; // Habilitar botão de finalizar chamada
             
             this.isCallStarted = true;
             this.addMessage('system', 'Chamada iniciada com sucesso');
@@ -197,6 +200,43 @@ class WebRTCApp {
                 this.addMessage('system', `Vídeo ${videoTrack.enabled ? 'ativado' : 'desativado'}`);
             }
         }
+    }
+
+    // Função para finalizar a chamada
+    endCall() {
+        // Parar todas as tracks de mídia
+        if (this.localStream) {
+            this.localStream.getTracks().forEach(track => track.stop());
+        }
+        
+        // Limpar os elementos de vídeo
+        this.localVideo.srcObject = null;
+        this.remoteVideo.srcObject = null;
+        
+        // Redefinir a interface do usuário
+        this.startCallBtn.disabled = false;
+        this.shareScreenBtn.disabled = true;
+        this.toggleAudioBtn.disabled = true;
+        this.toggleVideoBtn.disabled = true;
+        this.endCallBtn.disabled = true;
+        
+        // Redefinir textos dos botões
+        this.toggleAudioBtn.textContent = 'Mudo';
+        this.toggleVideoBtn.textContent = 'Vídeo';
+        
+        // Atualizar status
+        this.connectionStatus.textContent = 'Chamada finalizada';
+        this.connectionStatus.style.color = 'red';
+        
+        this.isCallStarted = false;
+        
+        this.addMessage('system', 'Chamada finalizada');
+        
+        // Simular desconexão do participante remoto
+        setTimeout(() => {
+            this.connectionStatus.textContent = 'Desconectado';
+            this.connectionStatus.style.color = 'inherit';
+        }, 3000);
     }
 
     sendMessage() {

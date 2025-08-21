@@ -78,6 +78,22 @@ button:disabled {
     background: #8e44ad;
 }
 
+/* Estilo específico para o botão Finalizar Chamada */
+#endCall {
+    background: #e74c3c;
+}
+
+#endCall:hover:not(:disabled) {
+    background: #c0392b;
+    transform: translateY(-2px);
+}
+
+#endCall:disabled {
+    background: #95a5a6;
+    cursor: not-allowed;
+    transform: none;
+}
+
 .main-content {
     display: flex;
     flex-direction: column;
