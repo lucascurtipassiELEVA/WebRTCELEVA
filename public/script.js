@@ -1,5 +1,3 @@
-// Simulação de servidor WebRTC (para demonstração local)
-// Em produção, você precisará de um servidor signaling real
 // Configuração do WebRTC com signaling real
 class WebRTCApp {
     constructor() {
@@ -68,6 +66,11 @@ class WebRTCApp {
 
     connectToSignalingServer() {
         try {
+            // Verificar se io está definido
+            if (typeof io === 'undefined') {
+                throw new Error('Biblioteca Socket.io não carregada');
+            }
+            
             // Conectar ao servidor de signaling
             this.socket = io();
             
@@ -75,9 +78,14 @@ class WebRTCApp {
             this.setupSocketListeners();
             
             console.log('Conectado ao servidor de signaling');
+            this.addMessage('system', 'Conectado ao servidor');
         } catch (error) {
             console.error('Erro ao conectar com o servidor:', error);
             this.addMessage('system', 'Erro ao conectar com o servidor. Verifique se o servidor está rodando.');
+            
+            // Mostrar modal novamente para tentar reconectar
+            this.showRoomModal();
+            alert('Erro de conexão. Verifique se o servidor está rodando e tente novamente.');
         }
     }
 
